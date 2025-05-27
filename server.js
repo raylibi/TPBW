@@ -25,7 +25,7 @@ db.connect((err) => {
 // API GET: Ambil semua user
 app.get("/agen", (req, res) => {
     db.query(
-      "SELECT name, rating, address, hours_today, website, phone, from_, destination, latitude, longitude FROM travel_agent",
+      "SELECT name, rating, address, hours_today, website, phone, from_, destination, latitude, longitude, tipe FROM travel_agent",
       (err, result) => {
         if (err) {
           return res.status(500).json({ error: err.message });

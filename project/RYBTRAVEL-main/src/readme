@@ -1,0 +1,5 @@
+Nanti rencananya HOME itu jadi landing pagenya, nah isi di home itu ntr pindahin ke map.jsx, jadi nanti pas webnya jalan dia langsung ke bagian home(landing page)
+Pas dari Home kita bisa navigasi kebagian map buat liat travel yang tersedia, mesen, dll (sementara gitu dulu)
+
+catatan:
+HOMEE.jsx gak kepake 

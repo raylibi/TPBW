@@ -40,3 +40,8 @@
 .read-the-docs {
   color: #888;
 }
+
+/* index.css atau App.css */
+.leaflet-container {
+  cursor: grab !important;
+}

@@ -1,0 +1,824 @@
+import "leaflet/dist/leaflet.css";
+import { MapContainer, TileLayer, Marker, Popup, Tooltip } from "react-leaflet";
+import { useEffect, useState } from "react";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+import { ChevronDown } from "lucide-react";
+import axios from "axios";
+import L from "leaflet";
+import { useRef } from "react";
+import gambarsidebar from "../assets/rzq.jpg";
+
+
+
+// Custom Marker Icon
+const customIcon = new L.Icon({
+  iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png",
+  shadowSize: [41, 41],
+});
+
+const Home = () => {
+  const [openDropdown, setOpenDropdown] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [locations, setLocations] = useState([]);
+  const [selectedKeberangkatan, setSelectedKeberangkatan] = useState("");
+  const [selectedTujuan, setSelectedTujuan] = useState("");
+  const [selectedTipe, setSelectedTipe] = useState("");
+  const [tujuanList, setTujuanList] = useState([]);
+  const [selectedLocation, setSelectedLocation] = useState(null);
+  const sidebarRef = useRef();
+  const mapRef = useRef();
+  const wasDragging = useRef(false);
+
+
+
+  useEffect(() => {
+    const handleMouseDown = () => {
+      wasDragging.current = false; // mulai asumsi: bukan drag
+    };
+
+    const handleMouseMove = () => {
+      wasDragging.current = true; // ada gerakan, berarti drag
+    };
+
+    const handleClickOutside = (event) => {
+      const isSidebar = sidebarRef.current && sidebarRef.current.contains(event.target);
+      const isMarker = event.target.closest(".leaflet-marker-icon");
+
+      if (wasDragging.current) {
+        wasDragging.current = false; // reset drag setelah click
+        return; // abaikan click yang terjadi setelah drag
+      }
+
+      if (!isSidebar && !isMarker) {
+        setSelectedLocation(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("click", handleClickOutside);
+
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("click", handleClickOutside);
+    };
+  }, [selectedLocation]);
+
+
+  useEffect(() => {
+  axios.get("http://localhost:3000/agen")
+    .then((response) => {
+      const rawData = response.data;
+
+      // Ambil semua tujuan dari semua data dan pisah berdasarkan koma
+      const destinations = rawData.flatMap(agent =>
+        agent.destination
+          ? agent.destination.split(",").map(dest => dest.trim())
+          : []
+      );
+      const uniqueDestinations = [...new Set(destinations)].sort((a, b) => a.localeCompare(b));
+      setTujuanList(uniqueDestinations);
+
+      // Filter lokasi valid berdasarkan keberangkatan & tujuan
+      let validLocations = rawData.filter(agent => agent.latitude && agent.longitude);
+
+      if (selectedKeberangkatan) {
+        validLocations = validLocations.filter(agent => agent.from_ === selectedKeberangkatan);
+      }
+      if (selectedTujuan) {
+        // Cek apakah destination agent mengandung kota yang dipilih
+        validLocations = validLocations.filter(agent =>
+          agent.destination
+            ?.split(",")
+            .map(dest => dest.trim())
+            .includes(selectedTujuan)
+        );
+      }
+
+      setLocations(validLocations);
+    })
+    .catch((error) => console.error("Error fetching locations:", error));
+}, [selectedKeberangkatan, selectedTujuan]);
+
+
+  const toggleDropdown = (key) => {
+    setOpenDropdown((prev) => (prev === key ? null : key));
+  };
+
+  const dropdownOptions = {
+    Keberangkatan: ["Bandung"],
+    Tujuan: tujuanList, // gunakan hasil dari database
+    Tipe: ["Bus", "Travel", "Minibus"],
+  };
+
+  return (
+    <div>
+
+      {/* Dropdowns */}
+      <div className="flex items-center space-x-2 py-4 px-4 bg-white shadow relative z-[1000]">
+        {Object.keys(dropdownOptions).map((key) => (
+          <div key={key} className="relative">
+            <button
+              onClick={() => toggleDropdown(key)}
+              className="w-[200px] bg-white font-medium shadow border rounded-lg p-3 flex justify-between items-center truncate"
+            >
+              {key === "Keberangkatan" && (selectedKeberangkatan || "Pilih Keberangkatan")}
+              {key === "Tujuan" && (selectedTujuan || "Pilih Tujuan")}
+              {key === "Tipe" && (selectedTipe || "Pilih Tipe")}
+              <ChevronDown className="w-4 h-4 ml-2" />
+            </button>
+            
+            {openDropdown === key && (
+              <div className="absolute z-10 w-full bg-white border mt-2 rounded-lg shadow-lg max-h-60 overflow-auto">
+                {dropdownOptions[key].map((option) => (
+                  <div
+                    key={option}
+                    className="px-4 py-2 hover:bg-gray-100  cursor-pointer"
+                    onClick={() => {
+                      if (key === "Keberangkatan") setSelectedKeberangkatan(option);
+                      if (key === "Tujuan") setSelectedTujuan(option);
+                      if (key === "Tipe") setSelectedTipe(option);
+                      setOpenDropdown(null);
+                    }}
+                  >
+                    {option}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+        {(selectedKeberangkatan || selectedTujuan || selectedTipe) && (
+          <button
+            onClick={() => {
+              setSelectedKeberangkatan("");
+              setSelectedTujuan("");
+              setSelectedTipe("");
+            }}
+            className="bg-white rounded-lg px-4 py-3 hover:bg-gray-200 transition"
+          >
+            Reset Filter
+          </button>
+        )}
+        <div className="relative">
+          <DatePicker
+            selected={selectedDate}
+            onChange={(date) => setSelectedDate(date)}
+            dateFormat="dd MMMM yyyy"
+            minDate={new Date()}
+            className="border rounded-lg p-3 w-[250px] text-center text-black font-medium shadow focus:outline-none focus:ring-2 focus:ring-blue-500"
+            style={{ caretColor: "transparent" }}
+            placeholderText="Pilih Tanggal Keberangkatan"
+            onKeyDown={(e) => e.preventDefault()}
+          />
+        </div>
+      </div>
+
+      {/* Map */}
+      
+      <div className="h-screen w-screen flex relative">
+        <div
+          ref={sidebarRef}
+          className={`absolute top-0 left-0 h-full w-[475px] bg-white shadow-lg z-[1001] overflow-auto transform transition-transform duration-300 ease-in-out ${
+            selectedLocation ? "translate-x-0 pointer-events-auto" : "-translate-x-full pointer-events-none"
+          }`}
+
+        >
+          <div className="flex w-full h-[25%]">
+            <img 
+            src={gambarsidebar} 
+            alt="gmbr sidebar" 
+            className="w-full h-auto"
+            />
+          </div>
+          
+          
+          <div className=" px-10 py-5">
+            {selectedLocation && (
+              <>
+                <button
+                  onClick={() => setSelectedLocation(null)}
+                  className="absolute right-[10px] top-1/2 -translate-y-1/2 bg-transparent hover:bg-gray-400 text-black rounded-full p-1 z-[1002]"
+                >
+                  <span className="text-xl font-bold">&lt;</span>
+                </button>
+              <h2 className="text-lg font-bold mb-2">{selectedLocation.name}</h2>
+                <p><strong>Rating:</strong> {selectedLocation.rating}</p>
+                <p><strong>Alamat:</strong> {selectedLocation.address || "Tidak tersedia"}</p>
+                <p><strong>Tujuan:</strong> {selectedLocation.destination}</p>
+                <p><strong>Koordinat:</strong> {selectedLocation.latitude}, {selectedLocation.longitude}</p>
+                <p><strong>Link Booking:</strong><a href={selectedLocation.website}> {selectedLocation.website}</a></p>
+                <a
+                  href={`https://www.google.com/maps?q=${selectedLocation.latitude},${selectedLocation.longitude}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 underline mt-2 inline-block"
+                >
+                  Buka di Google Maps
+                </a>
+              </>
+            )}          
+          </div>
+
+        </div>
+        
+
+        <MapContainer center={[-6.902253152913098, 107.61865888465789]} zoom={12} style={{ height: "100%", width: "100%" }}>
+          <TileLayer
+            attribution='&copy; OpenStreetMap'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          {locations.map((loc, index) => (
+            <Marker
+              key={index}
+              position={[loc.latitude, loc.longitude]}
+              icon={customIcon}
+              eventHandlers={{
+                click: () => setSelectedLocation(loc),
+              }}
+            >
+              <Tooltip>
+                {loc.name}
+              </Tooltip>
+            </Marker>
+          ))}
+        </MapContainer>
+      </div>
+    </div>
+  );
+};
+
+export default Home;
+
+
+
+===================================================================================================================================================================================================
+
+
+
+// import { useEffect, useState } from "react";
+// import axios from "axios";
+import React from "react";
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import AkiyamartHeader from "./components/AkiyamartHeader";
+import Home from "./pages/HOME";
+import About from "./pages/ABOUT";
+import Services from "./pages/SERVICES";
+import Map from "./pages/MAP";
+import './index.css';
+
+
+function App() {
+
+  return (
+    <Router>
+      <div className="flex flex-col h-screen">
+        <AkiyamartHeader />
+        <Routes>
+          <Route path="/home" element={<Home />} />
+          <Route path="/about" element={<About />} />
+          <Route path="/services" element={<Services />} />
+          <Route path="/map" element={<Map />} />
+        </Routes>
+      </div>
+    </Router>
+  );
+}
+
+export default App;
+
+
+
+========================================================================================================================================================================================================
+
+
+
+import "leaflet/dist/leaflet.css";
+import { MapContainer, TileLayer, Marker, Popup, Tooltip } from "react-leaflet";
+import { useEffect, useState } from "react";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+import { ChevronDown } from "lucide-react";
+import axios from "axios";
+import L from "leaflet";
+import { useRef } from "react";
+import gambarsidebar from "../assets/rzq.jpg";
+
+
+
+// Custom Marker Icon
+const customIcon = new L.Icon({
+  iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png",
+  shadowSize: [41, 41],
+});
+
+const Home = () => {
+  const [openDropdown, setOpenDropdown] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [locations, setLocations] = useState([]);
+  const [selectedKeberangkatan, setSelectedKeberangkatan] = useState("");
+  const [selectedTujuan, setSelectedTujuan] = useState("");
+  const [tujuanList, setTujuanList] = useState([]);
+  const [selectedLocation, setSelectedLocation] = useState(null);
+  const sidebarRef = useRef();
+  const mapRef = useRef();
+  const wasDragging = useRef(false);
+
+
+
+  useEffect(() => {
+    const handleMouseDown = () => {
+      wasDragging.current = false; // mulai asumsi: bukan drag
+    };
+
+    const handleMouseMove = () => {
+      wasDragging.current = true; // ada gerakan, berarti drag
+    };
+
+    const handleClickOutside = (event) => {
+      const isSidebar = sidebarRef.current && sidebarRef.current.contains(event.target);
+      const isMarker = event.target.closest(".leaflet-marker-icon");
+
+      if (wasDragging.current) {
+        wasDragging.current = false; // reset drag setelah click
+        return; // abaikan click yang terjadi setelah drag
+      }
+
+      if (!isSidebar && !isMarker) {
+        setSelectedLocation(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("click", handleClickOutside);
+
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("click", handleClickOutside);
+    };
+  }, [selectedLocation]);
+
+
+  useEffect(() => {
+  axios.get("http://localhost:3000/agen")
+    .then((response) => {
+      const rawData = response.data;
+
+      // Ambil semua tujuan dari semua data dan pisah berdasarkan koma
+      const destinations = rawData.flatMap(agent =>
+        agent.destination
+          ? agent.destination.split(",").map(dest => dest.trim())
+          : []
+      );
+      const uniqueDestinations = [...new Set(destinations)].sort((a, b) => a.localeCompare(b));
+      setTujuanList(uniqueDestinations);
+
+      // Filter lokasi valid berdasarkan keberangkatan & tujuan
+      let validLocations = rawData.filter(agent => agent.latitude && agent.longitude);
+
+      if (selectedKeberangkatan) {
+        validLocations = validLocations.filter(agent => agent.from_ === selectedKeberangkatan);
+      }
+      if (selectedTujuan) {
+        // Cek apakah destination agent mengandung kota yang dipilih
+        validLocations = validLocations.filter(agent =>
+          agent.destination
+            ?.split(",")
+            .map(dest => dest.trim())
+            .includes(selectedTujuan)
+        );
+      }
+
+      setLocations(validLocations);
+    })
+    .catch((error) => console.error("Error fetching locations:", error));
+}, [selectedKeberangkatan, selectedTujuan]);
+
+
+  const toggleDropdown = (key) => {
+    setOpenDropdown((prev) => (prev === key ? null : key));
+  };
+
+  const dropdownOptions = {
+    Keberangkatan: ["Bandung"],
+    Tujuan: tujuanList, // gunakan hasil dari database
+  };
+
+  return (
+    
+    <div className="h-screen">
+      {/* Dropdowns */}
+      <div className="sticky top-0 items-center space-x-2 px-4 bg-transparent shadow z-[1050]">
+        <div className="flex items-center space-x-2 py-4 px-4 shadow">
+          {Object.keys(dropdownOptions).map((key) => (
+            <div key={key} className="relative">
+              <button
+                onClick={() => toggleDropdown(key)}
+                className="w-[200px] bg-white font-medium shadow border rounded-lg p-3 flex justify-between items-center truncate"
+              >
+                {key === "Keberangkatan" && (selectedKeberangkatan || "Pilih Keberangkatan")}
+                {key === "Tujuan" && (selectedTujuan || "Pilih Tujuan")}
+                <ChevronDown className="w-4 h-4 ml-2" />
+              </button>
+              
+              {openDropdown === key && (
+                <div className="absolute z-[1100] w-full bg-white border mt-2 rounded-lg shadow-lg max-h-60 overflow-auto">
+                  {dropdownOptions[key].map((option) => (
+                    <div
+                      key={option}
+                      className="px-4 py-2 hover:bg-gray-100  cursor-pointer"
+                      onClick={() => {
+                        if (key === "Keberangkatan") setSelectedKeberangkatan(option);
+                        if (key === "Tujuan") setSelectedTujuan(option);
+                        setOpenDropdown(null);
+                      }}
+                    >
+                      {option}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+          {(selectedKeberangkatan || selectedTujuan) && (
+            <button
+              onClick={() => {
+                setSelectedKeberangkatan("");
+                setSelectedTujuan("");
+              }}
+              className="bg-white rounded-lg px-4 py-3 hover:bg-gray-200 transition"
+            >
+              Reset Filter
+            </button>
+          )}
+          <div className="relative">
+            <DatePicker
+              selected={selectedDate}
+              onChange={(date) => setSelectedDate(date)}
+              dateFormat="dd MMMM yyyy"
+              minDate={new Date()}
+              className="border rounded-lg p-3 w-[250px] text-center text-black font-medium shadow focus:outline-none focus:ring-2 focus:ring-blue-500"
+              style={{ caretColor: "transparent" }}
+              placeholderText="Pilih Tanggal Keberangkatan"
+              onKeyDown={(e) => e.preventDefault()}
+            />
+          </div>          
+        </div>
+      </div>
+          
+      {/* Map */}
+      
+      <div className="h-screen w-screen flex relative">
+        
+        <div
+          ref={sidebarRef}
+          className={`absolute top-0 left-0 h-full w-[475px] bg-white shadow-lg z-[1001] overflow-auto transform transition-transform duration-300 ease-in-out ${
+            selectedLocation ? "translate-x-0 pointer-events-auto" : "-translate-x-full pointer-events-none"
+          }`}
+
+        >
+          <div className="flex w-full h-[25%]">
+            <img 
+            src={gambarsidebar} 
+            alt="gmbr sidebar" 
+            className="w-full h-auto"
+            />
+          </div>
+          
+          
+          <div className=" px-10 py-5">
+            {selectedLocation && (
+              <>
+                <button
+                  onClick={() => setSelectedLocation(null)}
+                  className="absolute right-[10px] top-1/2 -translate-y-1/2 bg-transparent hover:bg-gray-400 text-black rounded-full p-1 z-[1002]"
+                >
+                  <span className="text-xl font-bold">&lt;</span>
+                </button>
+              <h2 className="text-lg font-bold mb-2">{selectedLocation.name}</h2>
+                <p><strong>Rating:</strong> {selectedLocation.rating}</p>
+                <p><strong>Alamat:</strong> {selectedLocation.address || "Tidak tersedia"}</p>
+                <p><strong>Tujuan:</strong> {selectedLocation.destination}</p>
+                <p><strong>Koordinat:</strong> {selectedLocation.latitude}, {selectedLocation.longitude}</p>
+                <p><strong>Link Booking:</strong><a href={selectedLocation.website}> {selectedLocation.website}</a></p>
+                <a
+                  href={`https://www.google.com/maps?q=${selectedLocation.latitude},${selectedLocation.longitude}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 underline mt-2 inline-block"
+                >
+                  Buka di Google Maps
+                </a>
+              </>
+            )}          
+          </div>
+
+        </div>
+        
+
+        <MapContainer center={[-6.902253152913098, 107.61865888465789]} zoom={12} style={{ height: "100%", width: "100%" }}>
+          <TileLayer
+            attribution='&copy; OpenStreetMap'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          {locations.map((loc, index) => (
+            <Marker
+              key={index}
+              position={[loc.latitude, loc.longitude]}
+              icon={customIcon}
+              eventHandlers={{
+                click: () => setSelectedLocation(loc),
+              }}
+            >
+              <Tooltip>
+                {loc.name}
+              </Tooltip>
+            </Marker>
+          ))}
+        </MapContainer>
+      </div>
+    </div>
+    
+  );
+};
+
+export default Home;
+
+
+
+===============================================================================================================================================================================================================================================
+
+
+
+import "leaflet/dist/leaflet.css";
+import { MapContainer, TileLayer, Marker, Popup, Tooltip } from "react-leaflet";
+import { useEffect, useState } from "react";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+import { ChevronDown } from "lucide-react";
+import axios from "axios";
+import L from "leaflet";
+import { useRef } from "react";
+import gambarsidebar from "../assets/rzq.jpg";
+
+
+
+// Custom Marker Icon
+const customIcon = new L.Icon({
+  iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png",
+  shadowSize: [41, 41],
+});
+
+const Home = () => {
+  const [openDropdown, setOpenDropdown] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [locations, setLocations] = useState([]);
+  const [selectedKeberangkatan, setSelectedKeberangkatan] = useState("");
+  const [selectedTujuan, setSelectedTujuan] = useState("");
+  const [tujuanList, setTujuanList] = useState([]);
+  const [selectedLocation, setSelectedLocation] = useState(null);
+  const sidebarRef = useRef();
+  const mapRef = useRef();
+  const wasDragging = useRef(false);
+  
+
+
+
+  useEffect(() => {
+    const handleMouseDown = () => {
+      wasDragging.current = false; // mulai asumsi: bukan drag
+    };
+
+    const handleMouseMove = () => {
+      wasDragging.current = true; // ada gerakan, berarti drag
+    };
+
+    const handleClickOutside = (event) => {
+      const isSidebar = sidebarRef.current && sidebarRef.current.contains(event.target);
+      const isMarker = event.target.closest(".leaflet-marker-icon");
+
+      if (wasDragging.current) {
+        wasDragging.current = false; // reset drag setelah click
+        return; // abaikan click yang terjadi setelah drag
+      }
+
+      if (!isSidebar && !isMarker) {
+        setSelectedLocation(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("click", handleClickOutside);
+
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("click", handleClickOutside);
+    };
+  }, [selectedLocation]);
+
+
+  useEffect(() => {
+  axios.get("http://localhost:3000/agen")
+    .then((response) => {
+      const rawData = response.data;
+
+      // Ambil semua tujuan dari semua data dan pisah berdasarkan koma
+      const destinations = rawData.flatMap(agent =>
+        agent.destination
+          ? agent.destination.split(",").map(dest => dest.trim())
+          : []
+      );
+      const uniqueDestinations = [...new Set(destinations)].sort((a, b) => a.localeCompare(b));
+      setTujuanList(uniqueDestinations);
+
+      // Filter lokasi valid berdasarkan keberangkatan & tujuan
+      let validLocations = rawData.filter(agent => agent.latitude && agent.longitude);
+
+      if (selectedKeberangkatan) {
+        validLocations = validLocations.filter(agent => agent.from_ === selectedKeberangkatan);
+      }
+      if (selectedTujuan) {
+        // Cek apakah destination agent mengandung kota yang dipilih
+        validLocations = validLocations.filter(agent =>
+          agent.destination
+            ?.split(",")
+            .map(dest => dest.trim())
+            .includes(selectedTujuan)
+        );
+      }
+
+      setLocations(validLocations);
+    })
+    .catch((error) => console.error("Error fetching locations:", error));
+}, [selectedKeberangkatan, selectedTujuan]);
+
+
+  const toggleDropdown = (key) => {
+    setOpenDropdown((prev) => (prev === key ? null : key));
+  };
+
+  const dropdownOptions = {
+    Keberangkatan: ["Bandung"],
+    Tujuan: tujuanList, // gunakan hasil dari database
+  };
+
+  return (
+    
+    <div className="h-screen w-screen overflow-hidden">
+      <div className="flex flex-col h-full overflow-auto">
+        <div className="items-center space-x-2 px-4 bg-transparent shadow z-[1050]">
+          <div className="flex items-center space-x-2 py-4 px-4 shadow">
+            {Object.keys(dropdownOptions).map((key) => (
+              <div key={key} className="relative">
+                <button
+                  onClick={() => toggleDropdown(key)}
+                  className="w-[200px] bg-white font-medium shadow border rounded-lg p-3 flex justify-between items-center truncate"
+                >
+                  {key === "Keberangkatan" && (selectedKeberangkatan || "Pilih Keberangkatan")}
+                  {key === "Tujuan" && (selectedTujuan || "Pilih Tujuan")}
+                  <ChevronDown className="w-4 h-4 ml-2" />
+                </button>
+                
+                {openDropdown === key && (
+                  <div className="absolute z-[1100] w-full bg-white border mt-2 rounded-lg shadow-lg max-h-60 overflow-auto">
+                    {dropdownOptions[key].map((option) => (
+                      <div
+                        key={option}
+                        className="px-4 py-2 hover:bg-gray-100  cursor-pointer"
+                        onClick={() => {
+                          if (key === "Keberangkatan") setSelectedKeberangkatan(option);
+                          if (key === "Tujuan") setSelectedTujuan(option);
+                          setOpenDropdown(null);
+                        }}
+                      >
+                        {option}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+            {(selectedKeberangkatan || selectedTujuan) && (
+              <button
+                onClick={() => {
+                  setSelectedKeberangkatan("");
+                  setSelectedTujuan("");
+                }}
+                className="bg-white rounded-lg px-4 py-3 hover:bg-gray-200 transition"
+              >
+                Reset Filter
+              </button>
+            )}
+            <div className="relative">
+              <DatePicker
+                selected={selectedDate}
+                onChange={(date) => setSelectedDate(date)}
+                dateFormat="dd MMMM yyyy"
+                minDate={new Date()}
+                className="border rounded-lg p-3 w-[250px] text-center text-black font-medium shadow focus:outline-none focus:ring-2 focus:ring-blue-500"
+                style={{ caretColor: "transparent" }}
+                placeholderText="Pilih Tanggal Keberangkatan"
+                onKeyDown={(e) => e.preventDefault()}
+              />
+            </div>          
+          </div>
+        </div>
+            
+        {/* Map */}
+        
+        <div className="flex flex-grow relative h-[calc(100vh-80px)]">
+          
+          <div
+            ref={sidebarRef}
+            className={`absolute top-0 left-0 h-full w-[20%] bg-white shadow-lg z-[1001] overflow-auto transform transition-transform duration-300 ease-in-out ${
+              selectedLocation ? "translate-x-0 pointer-events-auto" : "-translate-x-full pointer-events-none"
+            }`}
+
+          >
+            <div className="flex w-full h-[25%]">
+              <img 
+              src={gambarsidebar} 
+              alt="gmbr sidebar" 
+              className="w-full h-auto"
+              />
+            </div>
+            
+            
+            <div className=" px-10 py-5">
+              {selectedLocation && (
+                <>
+                  <button
+                    onClick={() => setSelectedLocation(null)}
+                    className="absolute right-[10px] top-1/2 -translate-y-1/2 bg-transparent hover:bg-gray-400 text-black rounded-full p-1 z-[1002]"
+                  >
+                    <span className="text-xl font-bold">&lt;</span>
+                  </button>
+                <h2 className="text-lg font-bold mb-2">{selectedLocation.name}</h2>
+                  <p><strong>Rating:</strong> {selectedLocation.rating}</p>
+                  <p><strong>Alamat:</strong> {selectedLocation.address || "Tidak tersedia"}</p>
+                  <p><strong>Tujuan:</strong> {selectedLocation.destination}</p>
+                  <p><strong>Koordinat:</strong> {selectedLocation.latitude}, {selectedLocation.longitude}</p>
+                  <p><strong>Link Booking:</strong><a href={selectedLocation.website}> {selectedLocation.website}</a></p>
+                  <a
+                    href={`https://www.google.com/maps?q=${selectedLocation.latitude},${selectedLocation.longitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 underline mt-2 inline-block"
+                  >
+                    Buka di Google Maps
+                  </a>
+                </>
+              )}          
+            </div>
+
+          </div>
+          
+
+          <MapContainer center={[-6.902253152913098, 107.61865888465789]} zoom={12} style={{ height: "100%", width: "100%" }}>
+            <TileLayer
+              attribution='&copy; OpenStreetMap'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            {locations.map((loc, index) => (
+              <Marker
+                key={index}
+                position={[loc.latitude, loc.longitude]}
+                icon={customIcon}
+                eventHandlers={{
+                  click: () => setSelectedLocation(loc),
+                }}
+              >
+                <Tooltip>
+                  {loc.name}
+                </Tooltip>
+              </Marker>
+            ))}
+          </MapContainer>
+      </div>
+      {/* Dropdowns */}
+
+      </div>
+    </div>
+    
+  );
+};
+
+export default Home;
